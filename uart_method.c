@@ -1,0 +1,202 @@
+
+#include "uart_method.h"
+#include "uart_constants.h"
+#include "uart_log.h"
+
+
+
+uint16_t calc_crc16(uint8_t *buf, uint16_t len)
+{
+	uint16_t crc16 = 0xFFFF;
+
+    for (int i=0; i<len; i++)
+    {
+        crc16 ^= (uint16_t)buf[i];
+        for (int j=8; j!= 0; j--) 
+        {
+            if ( (crc16 & 0x0001) != 0 )
+            {
+                crc16 >>= 1;
+                crc16 ^= 0xA001;
+            }
+            else 
+            {
+                crc16 >>= 1;
+            }
+        }
+    }
+
+
+	crc16 = ((crc16 & 0x00ff) << 8) | ((crc16 & 0xff00) >> 8);
+	
+	return crc16;
+}
+
+
+
+uint8_t calc_checksum(uint8_t *buf, uint16_t len)
+{
+	uint8_t checksum;
+	
+	checksum = 0x00;
+	for (int i=0; i<len; i++)
+	{
+		checksum += buf[i];
+	}
+
+	checksum = (~checksum + 1);
+	
+	return checksum;
+}
+
+
+uint32_t reassembly_packet(uint8_t seq_num, uint8_t func_code, uint8_t *dest, uint8_t *data, uint16_t data_len)
+{
+	uint16_t crc16;
+
+	dest[START_CODE_OFF] = START_CODE;
+	
+	dest[DEV_TYPE_OFF] = 0x00;
+	dest[DEV_TYPE_OFF + 1] = 0x01;
+	
+	dest[SEQ_NUM_OFF] = seq_num;
+	
+	dest[FUNC_CODE_OFF] = func_code;
+	
+	dest[DATA_LEN_OFF] 	 = (data_len >> 8) & 0xFF;
+	dest[DATA_LEN_OFF + 1] = data_len & 0xFF;
+	
+	dest[CHECK_SUM_OFF] = calc_checksum(dest, CHECK_SUM_OFF);
+	
+	memmove(&dest[DATA_OFF], data, data_len);
+	
+	crc16 = calc_crc16(dest, (DATA_OFF + data_len));
+	dest[DATA_OFF + data_len] = (crc16 >> 8) & 0xFF;
+	dest[DATA_OFF + data_len + 1] = crc16 & 0xFF;
+	
+	return (data_len + PACKET_EXT_INFO);
+}
+
+
+bool data_queue_is_empty(t_data_queue *list, uint8_t which_queue)
+{
+	if (which_queue == ENUM_SEND_QUEUE)
+	{
+		if ( ((list->send_give_index) == (list->send_take_index)) && (list->send_buf_overflow == false) )
+		{
+			return true;
+		}
+	}
+	else
+	{
+		if ( ((list->recv_give_index) == (list->recv_take_index)) && (list->recv_buf_overflow == false) )
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+bool data_queue_is_full(t_data_queue *list, uint8_t which_queue)
+{
+	if (which_queue == ENUM_SEND_QUEUE)
+	{
+		if ( ((list->send_give_index) == (list->send_take_index)) && (list->send_buf_overflow == true) )
+		{
+			return true;
+		}
+	}
+	else
+	{
+		if ( ((list->recv_give_index) == (list->recv_take_index)) && (list->recv_buf_overflow == true) )
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+
+
+bool verify_checksum(uint8_t *data, uint32_t data_len)
+{
+
+	uint8_t recv_checksum, local_checksum;
+
+	if (data_len < CHECK_SUM_OFF)
+	{
+		return false;
+	}
+	
+	recv_checksum = data[CHECK_SUM_OFF];
+	local_checksum = calc_checksum(data, CHECK_SUM_OFF);
+
+	if (recv_checksum != local_checksum)
+	{
+		return false;
+	}
+
+
+	return true;
+}
+
+
+
+bool verify_crc16(uint8_t *data, uint32_t data_len)
+{
+
+	uint16_t len, recv_crc16, local_crc16;
+	if (data_len < CHECK_SUM_OFF)
+	{
+		return false;
+	}
+
+	len = data[DATA_LEN_OFF] << 8 | data[DATA_LEN_OFF + 1];
+
+	if (data_len < (len + PACKET_EXT_INFO))
+	{
+		return false;
+	}
+
+	recv_crc16 = data[DATA_OFF + len] << 8 | data[DATA_OFF + len + 1];
+	local_crc16 = calc_crc16(data, (DATA_OFF + len));
+
+	if (recv_crc16 != local_crc16)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+
+
+
+
+bool search_start_code(uint8_t *data, uint16_t *len)
+{
+	uint16_t i;
+	for (i=0; i<*len; i++)
+	{
+		if (data[i] == START_CODE)
+		{
+			break;
+		}
+	}
+
+	if (i == *len)
+	{
+		*len = 0;
+		return false;
+	}
+
+	*len -= i;
+	memmove(data, &data[i], *len);
+	
+
+	return true;
+}
