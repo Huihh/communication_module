@@ -80,16 +80,17 @@ uint32_t reassembly_packet(uint8_t seq_num, uint8_t func_code, uint8_t *dest, ui
 
 bool data_queue_is_empty(t_data_queue *list, uint8_t which_queue)
 {
+
 	if (which_queue == ENUM_SEND_QUEUE)
 	{
-		if ( ((list->send_give_index) == (list->send_take_index)) && (list->send_buf_overflow == false) )
+		if (list->send_buf_num == 0x00)
 		{
 			return true;
 		}
 	}
 	else
 	{
-		if ( ((list->recv_give_index) == (list->recv_take_index)) && (list->recv_buf_overflow == false) )
+		if (list->recv_buf_num == 0x00)
 		{
 			return true;
 		}
@@ -103,14 +104,14 @@ bool data_queue_is_full(t_data_queue *list, uint8_t which_queue)
 {
 	if (which_queue == ENUM_SEND_QUEUE)
 	{
-		if ( ((list->send_give_index) == (list->send_take_index)) && (list->send_buf_overflow == true) )
+		if (list->send_buf_num == QUEUE_SEND_SIZE )
 		{
 			return true;
 		}
 	}
 	else
 	{
-		if ( ((list->recv_give_index) == (list->recv_take_index)) && (list->recv_buf_overflow == true) )
+		if (list->recv_buf_num == QUEUE_RECV_SIZE)
 		{
 			return true;
 		}
@@ -118,6 +119,81 @@ bool data_queue_is_full(t_data_queue *list, uint8_t which_queue)
 
 	return false;
 }
+
+
+uint8_t get_idle_index(t_data_queue *list, uint8_t which_queue)
+{
+	uint8_t idle_index = 0xFF;
+
+	if (which_queue == ENUM_SEND_QUEUE)
+	{
+
+		for (int i=0; i<QUEUE_SEND_SIZE; i++)
+		{
+			if (list->send_idle_index[i] == 0x00)
+			{
+				idle_index = i;
+				break;
+			}
+		}
+	}
+	else
+	{
+		for (int i=0; i<QUEUE_RECV_SIZE; i++)
+		{
+			if (list->recv_idle_index[i] == 0x00)
+			{
+				idle_index = i;
+				break;
+			}
+		}
+	}
+
+	return idle_index;
+}
+
+
+void add_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+{
+	for (int i=0; i<element_num; i++)
+	{
+		if (buf[i] == 0x00)
+		{
+			buf[i] = seq_num;
+			return;
+		}
+	}
+
+	buf[0] = seq_num;
+}
+
+
+void remove_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+{
+	for (int i=0; i<element_num; i++)
+	{
+		if (buf[i] == seq_num)
+		{
+			buf[i] = 0x00;
+		}
+	}
+}
+
+
+
+uint8_t search_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+{
+	for (uint8_t i=0; i<element_num; i++)
+	{
+		if (buf[i] == seq_num)
+		{
+			return i;
+		}
+	}	
+
+	return 0xFF;
+}
+
 
 
 

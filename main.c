@@ -19,6 +19,7 @@ uint16_t recv_len;
 
 int main()
 {
+#if 0    
     int32_t ret_code, send_count = 6;
 
     t_class_uart_parser uart_parser;
@@ -83,7 +84,7 @@ int main()
     {
 
     }
-
+#endif
     return 0;
 }
 

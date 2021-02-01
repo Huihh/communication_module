@@ -13,7 +13,7 @@
 static void timer_expired_handler(void *p_context)
 {
 
-	uint8_t func_code, seq_num, last_seq_num, temp_func_code, ret_timer_code;
+	uint8_t func_code, seq_num, temp_func_code, ret_timer_code, search_code;
 	uint16_t len, packet_len, i, temp_send_len;
 	int32_t ret_code;
 	uint8_t temp_send_buf[UART_TX_BUF_MAX_LEN];
@@ -26,10 +26,115 @@ static void timer_expired_handler(void *p_context)
 
 	LOG_UART_DEBUG("Timer expired hander...\n");
 
-	LOG_UART_DEBUG("Handle timer list...\n");
+
+	for (i=0; i<QUEUE_RECV_SIZE; i++)
+	{
+
+		LOG_UART_DEBUG("Process recv queue postion(%d/%d)\n", i, QUEUE_RECV_SIZE);
+
+		if (ptr_handle->pri_mem.data_queue.recv_idle_index[i] == 0x00)
+		{
+			continue;
+		}
+		
+		func_code = ptr_handle->pri_mem.data_queue.recv_buf[i][FUNC_CODE_OFF];
+		seq_num   = ptr_handle->pri_mem.data_queue.recv_buf[i][SEQ_NUM_OFF];
+
+		temp_ptr   = ptr_handle->pri_mem.data_queue.recv_buf[i];
+		len        = temp_ptr[DATA_LEN_OFF] << 8 | temp_ptr[DATA_LEN_OFF + 1];
+		packet_len = len + PACKET_EXT_INFO;
+		data_ptr   = &(ptr_handle->pri_mem.data_queue.recv_buf[i][DATA_OFF]);
+
+		LOG_UART_DEBUG("func_code = 0x%02x, seq_num = 0x%02x, len = 0x%04x\n", func_code, seq_num, len);
+		LOG_UART_ARRAY_DEBUG(ptr_handle->pri_mem.data_queue.recv_buf[i], packet_len);
+
+		if ( (func_code == FUNC_CODE_READ) || (func_code == FUNC_CODE_WRITE) || (func_code == FUNC_CODE_REPORT) )
+		{
+
+			LOG_UART_DEBUG("Request...\n");
+
+			temp_func_code = (func_code == FUNC_CODE_READ) ? FUNC_CODE_RSP : FUNC_CODE_ACK;
+
+			LOG_UART_DEBUG("Event call upper layer...\n");
+			LOG_UART_ARRAY_DEBUG(data_ptr, len);
+
+			ret_code       = ptr_handle->func_event_cb(ptr_handle, func_code, seq_num, data_ptr, &len);
+			temp_func_code = (ret_code == RET_CODE_SUCESS) ? temp_func_code : FUNC_CODE_ACK;
+
+			LOG_UART_DEBUG("Upper layer fill data...(len = %d)\n", len);
+			LOG_UART_ARRAY_DEBUG(data_ptr, len);
+
+			memset(temp_send_buf, 0x00, UART_TX_BUF_MAX_LEN);
+
+			LOG_UART_DEBUG("Reassembly packet...\n");
+		
+			len = (temp_func_code == FUNC_CODE_ACK) ? 1 : (len % (UART_TX_BUF_MAX_LEN - PACKET_EXT_INFO)) ;
+			temp_send_len = reassembly_packet(seq_num, temp_func_code, temp_send_buf, data_ptr, len);
+		
+			LOG_UART_DEBUG("Call uart send packet...(len = %d)\n", temp_send_len);
+			LOG_UART_ARRAY_DEBUG(temp_send_buf, temp_send_len);
+
+			ret_code = ptr_handle->func_send_cb(ptr_handle, temp_send_buf, temp_send_len);
+			if (ret_code != RET_CODE_SUCESS)
+			{
+				ptr_handle->func_event_cb(ptr_handle, EVT_UART_SEND_ERR, seq_num, temp_send_buf, &temp_send_len);
+				LOG_UART_DEBUG("(%s)-->Send uart data failed, ret_code = %d\n", __FUNCTION__, ret_code);
+			}
+			else
+			{	
+				LOG_UART_DEBUG("Send uart data successed\n");
+			}
+	
+		}
+		else if ( (func_code == FUNC_CODE_ACK) || (func_code == FUNC_CODE_RSP) )
+		{		
+
+			search_code = search_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_cmd_rsp_seq_num, RECV_SEQ_NUM_SIZE, seq_num);	
+			if (search_code == 0xFF)
+			{
+				LOG_UART_DEBUG("First recv seq_num data. seq_num = %d\n", seq_num);
+				add_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_cmd_rsp_seq_num, RECV_SEQ_NUM_SIZE, seq_num);
+
+				search_code = search_recv_seq_num(ptr_handle->pri_mem.data_queue.send_idle_index, QUEUE_SEND_SIZE, seq_num);
+				if (search_code != 0xFF)
+				{
+					LOG_UART_DEBUG("Rsponse...\n");
+
+					ptr_handle->func_event_cb(ptr_handle, func_code, seq_num, data_ptr, &len);
+
+					ptr_handle->pri_mem.data_queue.send_waitting_rsp[search_code] = 0x00;
+					ptr_handle->pri_mem.data_queue.send_idle_index[search_code] = 0x00;
+					ptr_handle->pri_mem.data_queue.send_buf_num -= 0x01;	
+				}
+				else
+				{
+					LOG_UART_DEBUG("(%s)-->Recv illegal seq_num = %d\n", __FUNCTION__, seq_num);
+				}
+			}
+			else
+			{
+				LOG_UART_DEBUG("(%s)-->Recv duplicate seq_num = %d, just ignore it\n", __FUNCTION__, seq_num);
+			}
+		}
+		else
+		{
+			LOG_UART_DEBUG("(%s)-->Func_code is illegal, ignore it\n", __FUNCTION__);
+		}
+
+
+		ptr_handle->pri_mem.data_queue.recv_idle_index[i] = 0x00;
+		ptr_handle->pri_mem.data_queue.recv_buf_num -= 0x01;
+	}
+	
+
 
 	for (i=0; i<QUEUE_SEND_SIZE; i++)
 	{
+		LOG_UART_DEBUG("Process send queue postion(%d/%d)\n", i, QUEUE_SEND_SIZE);
+		if (ptr_handle->pri_mem.data_queue.send_idle_index[i] == 0x00)
+		{
+			continue;
+		}
 
 		if (ptr_handle->pri_mem.data_queue.send_waitting_rsp[i] == 0x01)
 		{
@@ -49,11 +154,12 @@ static void timer_expired_handler(void *p_context)
 
 				if (ptr_handle->pri_mem.data_queue.send_retry_times[i] == 0x00)
 				{
-					ptr_handle->pri_mem.data_queue.send_take_index = (ptr_handle->pri_mem.data_queue.send_take_index + 1) % QUEUE_SEND_SIZE;
-					ptr_handle->pri_mem.data_queue.send_buf_overflow = 0x00;
 
 					ptr_handle->func_event_cb(ptr_handle, EVT_TIMER_TIMEOUT, seq_num, data_ptr, &len);
+
+					ptr_handle->pri_mem.data_queue.recv_idle_index[i] = 0x00;
 					ptr_handle->pri_mem.data_queue.send_waitting_rsp[i] = 0x00;
+					ptr_handle->pri_mem.data_queue.send_buf_num -= 0x01;	
 
 					process_flag = false;
 				}
@@ -79,111 +185,6 @@ static void timer_expired_handler(void *p_context)
 		}
 	}
 
-
-	LOG_UART_DEBUG("Handle recv data queue list start...\n");
-	while (!data_queue_is_empty(&(ptr_handle->pri_mem.data_queue), ENUM_RECV_QUEUE))
-	{
-		func_code = ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_take_index][FUNC_CODE_OFF];
-		seq_num   = ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_take_index][SEQ_NUM_OFF];
-		last_seq_num = ptr_handle->pri_mem.recv_seq_num;
-
-
-		LOG_UART_DEBUG("recv_give_index = %d, recv_take_index = %d\n", ptr_handle->pri_mem.data_queue.recv_give_index, ptr_handle->pri_mem.data_queue.recv_take_index);
-
-		temp_ptr   = ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_take_index];
-		len        = temp_ptr[DATA_LEN_OFF] << 8 | temp_ptr[DATA_LEN_OFF + 1];
-		packet_len = len + PACKET_EXT_INFO;
-		data_ptr   = &(ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_take_index][DATA_OFF]);
-
-
-		LOG_UART_ARRAY_DEBUG(ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_take_index], packet_len);
-		LOG_UART_DEBUG("func_code = 0x%02x, seq_num = 0x%02x, len = 0x%04x\n", func_code, seq_num, len);
-
-		if ( (func_code == FUNC_CODE_READ) || (func_code == FUNC_CODE_WRITE) || (func_code == FUNC_CODE_REPORT) )
-		{
-
-			if (seq_num != last_seq_num)
-			{
-				ptr_handle->pri_mem.recv_seq_num = seq_num;
-
-				LOG_UART_DEBUG("Request...\n");
-
-				temp_func_code = (func_code == FUNC_CODE_READ) ? FUNC_CODE_RSP : FUNC_CODE_ACK;
-
-				LOG_UART_DEBUG("Event call upper layer...\n");
-				LOG_UART_ARRAY_DEBUG(data_ptr, len);
-
-				ret_code       = ptr_handle->func_event_cb(ptr_handle, func_code, seq_num, data_ptr, &len);
-				temp_func_code = (ret_code == RET_CODE_SUCESS) ? temp_func_code : FUNC_CODE_ACK;
-
-				LOG_UART_DEBUG("Upper layer fill data...\n");
-				LOG_UART_ARRAY_DEBUG(data_ptr, len);
-
-				memset(temp_send_buf, 0x00, UART_TX_BUF_MAX_LEN);
-
-				LOG_UART_DEBUG("Reassembly packet...\n");
-			
-				len = (temp_func_code == FUNC_CODE_ACK) ? 1 : (len % (UART_TX_BUF_MAX_LEN - PACKET_EXT_INFO)) ;
-				temp_send_len = reassembly_packet(seq_num, temp_func_code, temp_send_buf, data_ptr, len);
-			
-				LOG_UART_DEBUG("Call uart send packet...\n");
-				LOG_UART_ARRAY_DEBUG(temp_send_buf, temp_send_len);
-
-				ret_code = ptr_handle->func_send_cb(ptr_handle, temp_send_buf, temp_send_len);
-				if (ret_code != RET_CODE_SUCESS)
-				{
-					ptr_handle->func_event_cb(ptr_handle, EVT_UART_SEND_ERR, seq_num, temp_send_buf, &temp_send_len);
-					LOG_UART_DEBUG("(%s)-->Send uart data failed, ret_code = %d\n", __FUNCTION__, ret_code);
-				}
-				else
-				{	
-					LOG_UART_DEBUG("Send uart data successed\n");
-				}
-			}
-			else
-			{
-				LOG_UART_DEBUG("(%s)-->Recv repeat seq_num, discard it, seq_num = %d, last_seq_num = %d\n", __FUNCTION__, seq_num, last_seq_num);
-			}
-		}
-		else if ( (func_code == FUNC_CODE_ACK) || (func_code == FUNC_CODE_RSP) )
-		{		
-
-			if (seq_num != last_seq_num)
-			{
-
-				ptr_handle->pri_mem.recv_seq_num = seq_num;
-
-				LOG_UART_DEBUG("Rsponse...\n");
-
-				if (ptr_handle->pri_mem.data_queue.send_buf[ptr_handle->pri_mem.data_queue.send_take_index][SEQ_NUM_OFF] == seq_num)
-				{
-					ptr_handle->func_event_cb(ptr_handle, func_code, seq_num, data_ptr, &len);
-					ptr_handle->pri_mem.data_queue.send_waitting_rsp[ptr_handle->pri_mem.data_queue.send_take_index] = 0x00;
-
-					ptr_handle->pri_mem.data_queue.send_take_index = (ptr_handle->pri_mem.data_queue.send_take_index + 1) % QUEUE_SEND_SIZE;
-					ptr_handle->pri_mem.data_queue.send_buf_overflow = 0x00;
-				}
-				else
-				{
-					LOG_UART_DEBUG("(%s)-->recv ack not expect seq_num, ignore it, expect_seq_num = %d, recv_seq_num = %d\n", __FUNCTION__, ptr_handle->pri_mem.data_queue.send_buf[ptr_handle->pri_mem.data_queue.send_take_index][SEQ_NUM_OFF], seq_num);
-				}
-			}
-			else
-			{
-				LOG_UART_DEBUG("(%s)-->Recv repeat seq_num, discard it, seq_num = %d, last_seq_num = %d\n", __FUNCTION__, seq_num, last_seq_num);
-			}
-		}
-		else
-		{
-			LOG_UART_DEBUG("(%s)-->Func_code is illegal, ignore it\n", __FUNCTION__);
-		}
-
-		ptr_handle->pri_mem.data_queue.recv_take_index = (ptr_handle->pri_mem.data_queue.recv_take_index + 1) % QUEUE_RECV_SIZE;
-		ptr_handle->pri_mem.data_queue.recv_buf_overflow = 0x00;
-
-	}
-
-
 	if (false == process_flag)
 	{
 		LOG_UART_DEBUG("There has no command waiting rsp, stop timer...\n");
@@ -203,9 +204,9 @@ static void timer_expired_handler(void *p_context)
 	{
 		LOG_UART_DEBUG("There has command waiting rsp, continue timer...\n");
 	}
-	
 
-	LOG_UART_DEBUG("Handle recv data queue list over...\n");
+	LOG_UART_DEBUG("Exit timer handler...\n");
+
 }
 
 

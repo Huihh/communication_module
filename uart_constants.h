@@ -95,6 +95,8 @@ typedef enum
 
 #define QUEUE_SEND_SIZE 		0x05	//Send command queue deepth
 #define QUEUE_RECV_SIZE 	    0x05    //Recv data queue deepth
+#define RECV_SEQ_NUM_SIZE		0x05    //cache recv cmd or rsp seq num max number
+
 
 #define TIMER_TIMEOUT_MS	    0x0A	//Timer resolution
 #define TIMER_TIMEOUT_SLOT	    0x64    //Packet Timeout time = 10 * 100 = 1000ms = 1s
@@ -111,14 +113,13 @@ typedef struct {
 	uint8_t send_waitting_rsp[QUEUE_SEND_SIZE];
 	uint8_t send_time_expired_stamp[QUEUE_SEND_SIZE];
 	uint8_t send_retry_times[QUEUE_SEND_SIZE];
-	uint8_t send_give_index;
-	uint8_t send_take_index;
-	uint8_t send_buf_overflow;
+	uint8_t send_idle_index[QUEUE_SEND_SIZE];
+	uint8_t send_buf_num;
 
 	uint8_t recv_buf[QUEUE_RECV_SIZE][UART_RX_BUF_MAX_LEN];
-	uint8_t recv_give_index;
-	uint8_t recv_take_index;
-	uint8_t recv_buf_overflow;
+	uint8_t recv_idle_index[QUEUE_RECV_SIZE];
+	uint8_t recv_cmd_rsp_seq_num[RECV_SEQ_NUM_SIZE];
+	uint8_t recv_buf_num;
 
 }t_data_queue;
 

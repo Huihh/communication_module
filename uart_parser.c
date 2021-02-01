@@ -10,7 +10,7 @@
 
 static int32_t uart_cmd_process(void *handle, uint8_t func_code, uint8_t *data, uint16_t data_len)
 {
-	uint8_t ret_timer_code;
+	uint8_t ret_timer_code, idle_index;
 	int32_t ret_code;
 
 	if ( (data_len + PACKET_EXT_INFO) > UART_TX_BUF_MAX_LEN )
@@ -29,13 +29,13 @@ static int32_t uart_cmd_process(void *handle, uint8_t func_code, uint8_t *data, 
 		return -ERR_CALLBACK_UNINIT;
 	}	
 
+	idle_index = get_idle_index(&(ptr_handle->pri_mem.data_queue), ENUM_SEND_QUEUE);
 
-	if (true == data_queue_is_full(&(ptr_handle->pri_mem.data_queue), ENUM_SEND_QUEUE))
+	if ( (true == data_queue_is_full(&(ptr_handle->pri_mem.data_queue), ENUM_SEND_QUEUE)) || (idle_index == 0xFF) )
 	{
-		LOG_UART_DEBUG("(%s)-->data queue is full\n", __FUNCTION__);
+		LOG_UART_DEBUG("(%s)-->data queue is full, send_buf_num = %d, idle_index = %d\n", __FUNCTION__, ptr_handle->pri_mem.data_queue.send_buf_num, idle_index);
 		return -ERR_QUEUE_FULL;
 	}
-
 
 	if ( (func_code != FUNC_CODE_READ) && (func_code != FUNC_CODE_WRITE) && (func_code != FUNC_CODE_REPORT) ) 
 	{
@@ -43,37 +43,35 @@ static int32_t uart_cmd_process(void *handle, uint8_t func_code, uint8_t *data, 
 		return -ERR_FUNC_CODE_INVALID;
 	}
 
-
 	LOG_UART_DEBUG("Reassembly packet (seq_num = %d)...\n", ptr_handle->pri_mem.send_seq_num);
-	ptr_handle->pri_mem.send_seq_num += 1;
-	ptr_handle->pri_mem.send_len = reassembly_packet(ptr_handle->pri_mem.send_seq_num, func_code, ptr_handle->pri_mem.data_queue.send_buf[ptr_handle->pri_mem.data_queue.send_give_index], data, data_len);
 
+	ptr_handle->pri_mem.send_seq_num = (ptr_handle->pri_mem.send_seq_num == 0xFF) ? 0x01 : (ptr_handle->pri_mem.send_seq_num + 0x01);
+
+	ptr_handle->pri_mem.send_len = reassembly_packet(ptr_handle->pri_mem.send_seq_num, func_code, ptr_handle->pri_mem.data_queue.send_buf[idle_index], data, data_len);
 
 	LOG_UART_DEBUG("Send data (len = %d)...\n", ptr_handle->pri_mem.send_len);
-	LOG_UART_ARRAY_DEBUG(ptr_handle->pri_mem.data_queue.send_buf[ptr_handle->pri_mem.data_queue.send_give_index], ptr_handle->pri_mem.send_len);
+	LOG_UART_ARRAY_DEBUG(ptr_handle->pri_mem.data_queue.send_buf[idle_index], ptr_handle->pri_mem.send_len);
 
 
-	ret_code = ptr_handle->func_send_cb(ptr_handle, ptr_handle->pri_mem.data_queue.send_buf[ptr_handle->pri_mem.data_queue.send_give_index], ptr_handle->pri_mem.send_len);
+	ret_code = ptr_handle->func_send_cb(ptr_handle, ptr_handle->pri_mem.data_queue.send_buf[idle_index], ptr_handle->pri_mem.send_len);
 	if (ret_code != RET_CODE_SUCESS)
 	{
 		LOG_UART_DEBUG("(%s)-->Send ret_code = %d\n", __FUNCTION__, ret_code);
 		return -ERR_UART_SEND_ERR;
 	}
 
-	ptr_handle->pri_mem.data_queue.send_retry_times[ptr_handle->pri_mem.data_queue.send_give_index] = RETRY_MAX_TIMES;
-	ptr_handle->pri_mem.data_queue.send_waitting_rsp[ptr_handle->pri_mem.data_queue.send_give_index] = 0x01;
-	ptr_handle->pri_mem.data_queue.send_time_expired_stamp[ptr_handle->pri_mem.data_queue.send_give_index] = TIMER_TIMEOUT_SLOT;
+	ptr_handle->pri_mem.data_queue.send_retry_times[idle_index] = RETRY_MAX_TIMES;
+	ptr_handle->pri_mem.data_queue.send_waitting_rsp[idle_index] = 0x01;
+	ptr_handle->pri_mem.data_queue.send_time_expired_stamp[idle_index] = TIMER_TIMEOUT_SLOT;
 
-	ptr_handle->pri_mem.data_queue.send_give_index = (ptr_handle->pri_mem.data_queue.send_give_index + 1) % QUEUE_SEND_SIZE;
+	ptr_handle->pri_mem.data_queue.send_idle_index[idle_index] = ptr_handle->pri_mem.send_seq_num;
  
+	ptr_handle->pri_mem.data_queue.send_buf_num += 0x01;
 
-
-	if (ptr_handle->pri_mem.data_queue.send_give_index == ptr_handle->pri_mem.data_queue.send_take_index)
+	if (ptr_handle->pri_mem.data_queue.send_buf_num == QUEUE_SEND_SIZE)
 	{
-		ptr_handle->pri_mem.data_queue.send_buf_overflow = 0x01;
+		LOG_UART_DEBUG("Send buf is full, cannot fill any cmd. send_cmd_num = %d, queue_deep = %d\n", ptr_handle->pri_mem.data_queue.send_buf_num, QUEUE_SEND_SIZE);
 	}
-
-	LOG_UART_DEBUG("send_give_index = %d, send_take_index = %d\n", ptr_handle->pri_mem.data_queue.send_give_index, ptr_handle->pri_mem.data_queue.send_take_index);
 
 	LOG_UART_DEBUG("Start timer...\n");
 
@@ -97,7 +95,7 @@ static int32_t uart_cmd_process(void *handle, uint8_t func_code, uint8_t *data, 
 
 static int32_t uart_recv_process(void *handle, uint8_t *data, uint16_t data_len)
 {
-	uint8_t ret_timer_code;
+	uint8_t ret_timer_code, idle_index;
 	uint32_t packet_len;
 	bool ret_result;
 
@@ -201,29 +199,29 @@ static int32_t uart_recv_process(void *handle, uint8_t *data, uint16_t data_len)
 			LOG_UART_DEBUG("verify CRC16 passed\n");
 
 
-			if (true == data_queue_is_full(&(ptr_handle->pri_mem.data_queue), ENUM_RECV_QUEUE))
+			idle_index = get_idle_index(&(ptr_handle->pri_mem.data_queue), ENUM_RECV_QUEUE);
+
+			if ( (true == data_queue_is_full(&(ptr_handle->pri_mem.data_queue), ENUM_RECV_QUEUE)) || (idle_index == 0xFF) )
 			{
 				LOG_UART_DEBUG("(%s)-->data queue is full, keep cache buf data, recv_len = %d\n", __FUNCTION__, ptr_handle->pri_mem.recv_len);
 				break;
 			}
 
 			ptr_handle->pri_mem.recv_len -= packet_len;
-			memmove(ptr_handle->pri_mem.data_queue.recv_buf[ptr_handle->pri_mem.data_queue.recv_give_index], &(ptr_handle->pri_mem.cache_buf[0]), packet_len);
+			memmove(ptr_handle->pri_mem.data_queue.recv_buf[idle_index], &(ptr_handle->pri_mem.cache_buf[0]), packet_len);
 			memmove(&(ptr_handle->pri_mem.cache_buf[0]), &(ptr_handle->pri_mem.cache_buf[packet_len]), ptr_handle->pri_mem.recv_len);
 
 			LOG_UART_DEBUG("After split buf data_len = %d\n", ptr_handle->pri_mem.recv_len);
 			LOG_UART_ARRAY_DEBUG(ptr_handle->pri_mem.cache_buf, ptr_handle->pri_mem.recv_len);
 
-			LOG_UART_DEBUG("current recv_give_index = %d\n", ptr_handle->pri_mem.data_queue.recv_give_index);
-			ptr_handle->pri_mem.data_queue.recv_give_index = (ptr_handle->pri_mem.data_queue.recv_give_index + 1) % QUEUE_RECV_SIZE;
-
-			if (ptr_handle->pri_mem.data_queue.recv_give_index == ptr_handle->pri_mem.data_queue.recv_take_index)
+			ptr_handle->pri_mem.data_queue.recv_idle_index[idle_index] = ptr_handle->pri_mem.data_queue.recv_buf[idle_index][SEQ_NUM_OFF];
+			ptr_handle->pri_mem.data_queue.recv_buf_num += 0x01; 
+			
+			
+			if (ptr_handle->pri_mem.data_queue.recv_buf_num == QUEUE_RECV_SIZE)
 			{
-				ptr_handle->pri_mem.data_queue.recv_buf_overflow = 0x01;
+				LOG_UART_DEBUG("Recv buf is full, cannot fill any data. recv_buf_num = %d, queue_deep = %d\n", ptr_handle->pri_mem.data_queue.recv_buf_num, QUEUE_RECV_SIZE);
 			}
-
-			LOG_UART_DEBUG("give_index = %d, take_index = %d\n", ptr_handle->pri_mem.data_queue.recv_give_index, ptr_handle->pri_mem.data_queue.recv_take_index);
-
 		}	
 	}
 
