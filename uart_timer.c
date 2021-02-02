@@ -157,7 +157,7 @@ static void timer_expired_handler(void *p_context)
 
 					ptr_handle->func_event_cb(ptr_handle, EVT_TIMER_TIMEOUT, seq_num, data_ptr, &len);
 
-					ptr_handle->pri_mem.data_queue.recv_idle_index[i] = 0x00;
+					ptr_handle->pri_mem.data_queue.send_idle_index[i] = 0x00;
 					ptr_handle->pri_mem.data_queue.send_waitting_rsp[i] = 0x00;
 					ptr_handle->pri_mem.data_queue.send_buf_num -= 0x01;	
 
