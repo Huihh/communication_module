@@ -160,11 +160,10 @@ void add_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
 		if (buf[i] == 0x00)
 		{
 			buf[i] = seq_num;
+			buf[(i+1)%element_num] = 0x00; 
 			return;
 		}
 	}
-
-	buf[0] = seq_num;
 }
 
 
