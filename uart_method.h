@@ -24,9 +24,10 @@ bool data_queue_is_empty(t_data_queue *list, uint8_t which_queue);
 bool data_queue_is_full(t_data_queue *list, uint8_t which_queue);
 
 uint8_t get_idle_index(t_data_queue *list, uint8_t which_queue);
-uint8_t add_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num);
-uint8_t remove_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num);
-uint8_t search_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num);
+uint8_t search_seq_num_index(uint8_t buf[], uint8_t element_num, uint8_t seq_num);
+uint8_t add_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num);
+uint8_t remove_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num);
+uint8_t search_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num);
 
 
 bool verify_checksum(uint8_t *data, uint32_t data_len);

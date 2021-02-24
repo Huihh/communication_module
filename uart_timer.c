@@ -50,11 +50,11 @@ static void timer_expired_handler(void *p_context)
 
 		if ( (func_code == FUNC_CODE_READ) || (func_code == FUNC_CODE_WRITE) || (func_code == FUNC_CODE_REPORT) )
 		{
-			seq_num_index = search_recv_seq_num((uint8_t **)(ptr_handle->pri_mem.data_queue.recv_cmd_seq_num), RECV_CMD_SEQ_NUM_SIZE, seq_num);	
+			seq_num_index = search_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_cmd_seq_num, RECV_CMD_SEQ_NUM_SIZE, seq_num);	
 			if (seq_num_index == 0xFF)
 			{
 				LOG_UART_DEBUG("First recv cmd seq_num data. func_code = %d, seq_num = %d\n", func_code, seq_num);
-				seq_num_index = add_recv_seq_num((uint8_t **)(ptr_handle->pri_mem.data_queue.recv_cmd_seq_num), RECV_CMD_SEQ_NUM_SIZE, seq_num);
+				seq_num_index = add_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_cmd_seq_num, RECV_CMD_SEQ_NUM_SIZE, seq_num);
 
 				LOG_UART_DEBUG("Request...\n");
 
@@ -130,13 +130,13 @@ static void timer_expired_handler(void *p_context)
 		else if ( (func_code == FUNC_CODE_ACK) || (func_code == FUNC_CODE_RSP) )
 		{		
 
-			seq_num_index = search_recv_seq_num((uint8_t **)(ptr_handle->pri_mem.data_queue.recv_rsp_seq_num), RECV_RSP_SEQ_NUM_SIZE, seq_num);	
+			seq_num_index = search_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_rsp_seq_num, RECV_RSP_SEQ_NUM_SIZE, seq_num);	
 			if (seq_num_index == 0xFF)
 			{
 				LOG_UART_DEBUG("First recv rsp seq_num data. func_code = %d, seq_num = %d\n", func_code, seq_num);
-				seq_num_index = add_recv_seq_num((uint8_t **)(ptr_handle->pri_mem.data_queue.recv_rsp_seq_num), RECV_RSP_SEQ_NUM_SIZE, seq_num);
+				seq_num_index = add_recv_seq_num(ptr_handle->pri_mem.data_queue.recv_rsp_seq_num, RECV_RSP_SEQ_NUM_SIZE, seq_num);
 
-				seq_num_index = search_recv_seq_num((uint8_t **)(ptr_handle->pri_mem.data_queue.send_idle_index), QUEUE_SEND_SIZE, seq_num);
+				seq_num_index = search_seq_num_index(ptr_handle->pri_mem.data_queue.send_idle_index, QUEUE_SEND_SIZE, seq_num);
 				if (seq_num_index != 0xFF)
 				{
 					LOG_UART_DEBUG("Rsponse...\n");

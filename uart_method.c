@@ -153,7 +153,22 @@ uint8_t get_idle_index(t_data_queue *list, uint8_t which_queue)
 }
 
 
-uint8_t add_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
+uint8_t search_seq_num_index(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+{
+	for (uint8_t i=0; i<element_num; i++)
+	{
+		if (buf[i] == seq_num)
+		{
+			return i;
+		}
+	}	
+
+	return 0xFF;
+}
+
+
+
+uint8_t add_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num)
 {
 	for (int i=0; i<element_num; i++)
 	{
@@ -169,7 +184,7 @@ uint8_t add_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
 }
 
 
-uint8_t remove_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
+uint8_t remove_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num)
 {
 	for (int i=0; i<element_num; i++)
 	{
@@ -185,7 +200,7 @@ uint8_t remove_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
 
 
 
-uint8_t search_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
+uint8_t search_recv_seq_num(uint8_t buf[][RSP_ACK_MAX_LEN], uint8_t element_num, uint8_t seq_num)
 {
 	for (uint8_t i=0; i<element_num; i++)
 	{
