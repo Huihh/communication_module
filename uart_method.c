@@ -153,38 +153,43 @@ uint8_t get_idle_index(t_data_queue *list, uint8_t which_queue)
 }
 
 
-void add_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+uint8_t add_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
 {
 	for (int i=0; i<element_num; i++)
 	{
-		if (buf[i] == 0x00)
+		if (buf[i][RSP_SEQ_NUM_OFF] == 0x00)
 		{
-			buf[i] = seq_num;
-			buf[(i+1)%element_num] = 0x00; 
-			return;
+			buf[i][RSP_SEQ_NUM_OFF] = seq_num;
+			memset(buf[(i+1)%element_num], 0x00, RSP_ACK_MAX_LEN);
+			return i;
 		}
 	}
+
+	return 0xFF;
 }
 
 
-void remove_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+uint8_t remove_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
 {
 	for (int i=0; i<element_num; i++)
 	{
-		if (buf[i] == seq_num)
+		if (buf[i][RSP_SEQ_NUM_OFF] == seq_num)
 		{
-			buf[i] = 0x00;
+			memset(buf[i], 0x00, RSP_ACK_MAX_LEN);
+			return i;
 		}
 	}
+
+	return 0xFF;
 }
 
 
 
-uint8_t search_recv_seq_num(uint8_t buf[], uint8_t element_num, uint8_t seq_num)
+uint8_t search_recv_seq_num(uint8_t **buf, uint8_t element_num, uint8_t seq_num)
 {
 	for (uint8_t i=0; i<element_num; i++)
 	{
-		if (buf[i] == seq_num)
+		if (buf[i][RSP_SEQ_NUM_OFF] == seq_num)
 		{
 			return i;
 		}
